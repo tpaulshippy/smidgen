@@ -42,6 +42,18 @@ public enum ShareStore {
         return arr
     }
 
+    /// Remove one matching URL (deep-link handoff consumed it). Preserves
+    /// all other queued URLs. No-op when App Group missing or absent.
+    public static func consume(url: String) {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let d = defaults else { return }
+        var arr = d.stringArray(forKey: pendingKey) ?? []
+        guard let i = arr.firstIndex(of: trimmed) else { return }
+        arr.remove(at: i)
+        d.set(arr, forKey: pendingKey)
+        d.synchronize()
+    }
+
     public static func pending() -> [String] {
         defaults?.stringArray(forKey: pendingKey) ?? []
     }

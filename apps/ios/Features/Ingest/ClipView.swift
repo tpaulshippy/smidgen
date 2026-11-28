@@ -40,8 +40,9 @@ public struct ClipView: View {
         return URL(string: SyncConfig.prodBaseURL)!
     }
 
-    public init(baseURL: URL? = nil) {
+    public init(baseURL: URL? = nil, urlText: String = "") {
         self.baseURL = baseURL ?? Self.defaultBaseURL()
+        _urlText = State(initialValue: urlText)
     }
 
     private func authedClient() -> ClipClient {

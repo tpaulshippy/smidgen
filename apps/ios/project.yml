@@ -126,6 +126,13 @@ targets:
       properties:
         NSMicrophoneUsageDescription: "Listen for hands-free cook commands while the recipe is on screen."
         NSSpeechRecognitionUsageDescription: "Recognize cook commands like Next step on-device."
+        # Deep link for the Share extension's "Open in Keep Cooking" button:
+        # smidgen://clip?url=<pct-encoded>. Mirror of Config/Info-App.plist
+        # CFBundleURLTypes (xcodegen rewrites that plist from scratch).
+        # Only host `clip` is claimed; smidgen://invite/<code> stays stubbed.
+        CFBundleURLTypes:
+          - CFBundleURLName: org.smidgen.app
+            CFBundleURLSchemes: [smidgen]
     entitlements:
       path: Config/AppGroups.entitlements
     settings:

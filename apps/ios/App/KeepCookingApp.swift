@@ -48,6 +48,11 @@ struct AdaptiveShell: View {
     @Environment(\.modelContext) private var context
     /// Set when a Files/Mail file tap stages an importable document.
     @State private var showImport = false
+    /// Share-extension deep link (smidgen://clip?url=...). Hoisted here so
+    /// BOTH idioms (phone drawer + PadSplitView) present the Clip review flow.
+    @State private var clipLink = ClipDeepLink.shared
+    @State private var clipURL: String? = nil
+    @State private var showClip = false
 
     var body: some View {
         Group {
@@ -66,7 +71,26 @@ struct AdaptiveShell: View {
         .modifier(ImportURLHandler(onFile: { url in
             if ImportPendingStore.stage(url) { showImport = true }
         }))
+        // Share extension "Open in Keep Cooking" (smidgen://clip?url=...).
+        // ImportURLHandler ignores non-file URLs; this claims only host `clip`.
+        .onOpenURL { url in
+            _ = ClipDeepLink.shared.open(url)
+        }
         .sheet(isPresented: $showImport) { ImportView() }
+        // Deep-link arrivals: present Clip review above whichever idiom
+        // is showing (phone drawer or iPad split). The .id() re-creates the
+        // ClipView per URL so a second link arriving while the sheet is open
+        // replaces the flow instead of being consumed and discarded.
+        .sheet(isPresented: $showClip, onDismiss: { clipURL = nil }) {
+            ClipView(urlText: clipURL ?? "")
+                .id(clipURL ?? "clip-empty")
+        }
+        .onChange(of: clipLink.pendingURL) { _, newValue in
+            guard let newValue else { return }
+            clipURL = newValue
+            clipLink.pendingURL = nil
+            showClip = true
+        }
         .task {
             // Airplane-mode demo: seeds load once, then sync when online.
             await SyncCoordinator.shared.seedIfNeeded(context: context)
@@ -812,6 +836,48 @@ extension SyncCoordinator {
         }
     }
 }
+// MARK: - Clip deep link (Share extension "Open in Keep Cooking")
+
+/// Tiny router for `smidgen://clip?url=<pct-encoded>` (Share extension
+/// "Open in Keep Cooking"). The extension also enqueues into ShareStore
+/// (App Group group.com.smidgen.share); the URL query param is the primary
+/// path, ShareStore.drain() stays the fallback when it is absent/undecodable.
+/// Only host `clip` is claimed — `smidgen://invite/<code>` (LibraryModels/
+/// Library README stub) and everything else is ignored here.
+@MainActor
+@Observable
+final class ClipDeepLink {
+    static let shared = ClipDeepLink()
+    /// Set when a clip link arrives; DrawerShellView consumes + clears it.
+    var pendingURL: String? = nil
+
+    @discardableResult
+    func open(_ url: URL) -> Bool {
+        guard let clipped = Self.clippedURL(from: url) else { return false }
+        // The extension already enqueued this URL into ShareStore; consume
+        // the matching entry so a later manual Clip visit can't replay it.
+        // Other queued URLs are preserved.
+        ShareStore.consume(url: clipped)
+        pendingURL = clipped
+        return true
+    }
+
+    /// Validate + extract the recipe URL. Accepts only scheme `smidgen`,
+    /// host `clip`, empty/`/` path, and a non-empty `url` query item
+    /// (URLComponents already percent-decodes it).
+    static func clippedURL(from url: URL) -> String? {
+        guard url.scheme?.lowercased() == "smidgen",
+              url.host?.lowercased() == "clip" else { return nil }
+        let path = url.path
+        guard path.isEmpty || path == "/" else { return nil }
+        guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let raw = comps.queryItems?.first(where: { $0.name == "url" })?.value
+        else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 // MARK: - Drawer destinations (phone)
 
 enum DrawerSection: String, CaseIterable, Identifiable {

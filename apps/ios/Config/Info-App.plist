@@ -43,5 +43,18 @@
 	<string>Recognize cook commands like Next step on-device.</string>
 	<!-- NOTE (project.yml): `xcodegen generate` rewrites Config plists from
 	     scratch — re-apply the two keys above by hand after any regen. -->
+	<!-- Share extension "Open in Keep Cooking": smidgen://clip?url=<pct-encoded>.
+	     Regen-safe mirror lives in project.yml KeepCooking info.properties. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>org.smidgen.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>smidgen</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

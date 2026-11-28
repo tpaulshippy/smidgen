@@ -23,6 +23,12 @@ public final class ShareViewController: UIViewController {
     /// Warm cooking accent that reads on both light and dark backgrounds.
     private let accent: UIColor = .systemOrange
     private var didFinish = false
+    /// State lock: set when loading resolves to success/failure (or cancel).
+    /// Distinct from didFinish (request completed) so success/failure buttons
+    /// can still call completeRequest after the status is shown.
+    private var didSettle = false
+    /// Saved URL for the success-state "Open in Keep Cooking" deep link.
+    private var savedURLString: String?
 
     // MARK: - UI
 
@@ -34,6 +40,8 @@ public final class ShareViewController: UIViewController {
     private let spinner = UIActivityIndicatorView(style: .medium)
     private let hintLabel = UILabel()
     private let cancelButton = UIButton(type: .system)
+    private let openAppButton = UIButton(type: .system)
+    private let doneButton = UIButton(type: .system)
 
     // MARK: - Lifecycle
 
@@ -117,7 +125,27 @@ public final class ShareViewController: UIViewController {
         cancelButton.tintColor = accent
         cancelButton.addTarget(self, action: #selector(cancelTapped), for: .touchUpInside)
 
-        [iconWrap, titleLabel, statusLabel, spinner, hintLabel, cancelButton].forEach(stack.addArrangedSubview)
+        // PRIMARY success action: accent-filled, opens host app clip flow.
+        openAppButton.setTitle("Open in Keep Cooking", for: .normal)
+        openAppButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .headline)
+        openAppButton.backgroundColor = accent
+        openAppButton.setTitleColor(.white, for: .normal)
+        openAppButton.layer.cornerRadius = 12
+        openAppButton.layer.masksToBounds = true
+        openAppButton.contentEdgeInsets = UIEdgeInsets(top: 12, left: 20, bottom: 12, right: 20)
+        openAppButton.accessibilityIdentifier = "ShareOpenAppButton"
+        openAppButton.addTarget(self, action: #selector(openAppTapped), for: .touchUpInside)
+        openAppButton.isHidden = true
+
+        // Secondary success action + failure dismissal: plain Done.
+        doneButton.setTitle("Done", for: .normal)
+        doneButton.titleLabel?.font = UIFont.preferredFont(forTextStyle: .body)
+        doneButton.tintColor = accent
+        doneButton.accessibilityIdentifier = "ShareDoneButton"
+        doneButton.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
+        doneButton.isHidden = true
+
+        [iconWrap, titleLabel, statusLabel, spinner, hintLabel, cancelButton, openAppButton, doneButton].forEach(stack.addArrangedSubview)
 
         NSLayoutConstraint.activate([
             card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
@@ -153,6 +181,10 @@ public final class ShareViewController: UIViewController {
             statusLabel.text = "Clipping to Keep Cooking…"
             hintLabel.text = "Hang tight…"
             spinner.startAnimating()
+            // Loading: work in flight → Cancel only.
+            cancelButton.isHidden = false
+            openAppButton.isHidden = true
+            doneButton.isHidden = true
         case .success(let message):
             iconView.image = UIImage(systemName: "checkmark.circle.fill")
             iconView.tintColor = .systemGreen
@@ -160,6 +192,10 @@ public final class ShareViewController: UIViewController {
             statusLabel.text = message
             hintLabel.text = "Open the app to review"
             spinner.stopAnimating()
+            // Success: PRIMARY open-app + secondary Done.
+            cancelButton.isHidden = true
+            openAppButton.isHidden = false
+            doneButton.isHidden = false
         case .failure(let message):
             iconView.image = UIImage(systemName: "exclamationmark.circle.fill")
             iconView.tintColor = .systemRed
@@ -167,6 +203,10 @@ public final class ShareViewController: UIViewController {
             statusLabel.text = message
             hintLabel.text = "Try sharing a link from Safari."
             spinner.stopAnimating()
+            // Failure: Done replaces Cancel (same Done behavior).
+            cancelButton.isHidden = true
+            openAppButton.isHidden = true
+            doneButton.isHidden = false
         }
     }
 
@@ -174,6 +214,47 @@ public final class ShareViewController: UIViewController {
         complete(with: NSError(domain: NSCocoaErrorDomain,
                                code: NSUserCancelledError,
                                userInfo: [NSLocalizedDescriptionKey: "Share cancelled"]))
+    }
+
+    /// PRIMARY success action: open host app straight into Clip review flow,
+    /// then completeRequest in the open-completion (single-shot, on main).
+    /// Any failure/unavailable open falls back to completing (never strands).
+    @objc private func openAppTapped() {
+        guard let context = extensionContext else {
+            finishCompletion()
+            return
+        }
+        guard let saved = savedURLString,
+              // Strict encoding: recipe URLs often carry their own ?query
+              // (& would split this value into separate query items).
+              let encoded = saved.addingPercentEncoding(withAllowedCharacters: .shareURLQueryValueAllowed),
+              let url = URL(string: "smidgen://clip?url=\(encoded)") else {
+            finishCompletion()
+            return
+        }
+        context.open(url, completionHandler: { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.finishCompletion()
+            }
+        })
+    }
+
+    /// Secondary success action + failure dismissal: just completes.
+    @objc private func doneTapped() {
+        finishCompletion()
+    }
+
+    /// Single-shot completeRequest wrapper (main thread).
+    private func finishCompletion() {
+        if !Thread.isMainThread {
+            DispatchQueue.main.async { [weak self] in self?.finishCompletion() }
+            return
+        }
+        guard !didFinish else { return }
+        didFinish = true
+        didSettle = true
+        spinner.stopAnimating()
+        extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
     }
 
     // MARK: - Extraction (robust, never leaves the sheet blank)
@@ -194,9 +275,9 @@ public final class ShareViewController: UIViewController {
 
         // Safety net: if a host never calls our loadItem completion back, the
         // sheet must still show a final status (never linger blank / spinner forever).
-        // No-op when any finish/cancel already ran (didFinish single-shot).
+        // No-op when any finish/cancel already ran (didSettle/didFinish single-shot).
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-            guard let self, !self.didFinish else { return }
+            guard let self, !self.didSettle, !self.didFinish else { return }
             self.finish(message: "Couldn't read that share", success: false)
         }
 
@@ -240,8 +321,8 @@ public final class ShareViewController: UIViewController {
     }
 
     private func tryTextProviders(_ providers: [NSItemProvider],
-                                 textTypeIDs: [String],
-                                 attributedFallback: String?) {
+                                  textTypeIDs: [String],
+                                  attributedFallback: String?) {
         guard let provider = firstProvider(in: providers, claiming: textTypeIDs) else {
             // Last resort: attributed text or a plain-text description of the payload.
             if let s = firstURLString(from: attributedFallback) {
@@ -322,35 +403,41 @@ public final class ShareViewController: UIViewController {
 
     private func store(_ s: String) {
         // Late loadItem callbacks after cancel/timeout must not save.
-        guard !didFinish else { return }
+        guard !didFinish, !didSettle else { return }
         let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             finish(message: "Nothing to share", success: false)
             return
         }
+        savedURLString = trimmed
         ShareStore.enqueue(url: trimmed)
         finish(message: "Saved to Keep Cooking ✓", success: true)
     }
 
     private func finish(message: String, success: Bool) {
         DispatchQueue.main.async { [weak self] in
-            guard let self, !self.didFinish else { return }
-            self.didFinish = true // single-shot: completeRequest OR cancelRequest, never both
+            guard let self, !self.didSettle, !self.didFinish else { return }
+            self.didSettle = true // single-shot: status locks; dismissal is via buttons
             self.setState(success ? .success(message) : .failure(message))
-            // Readability pause AFTER enqueue — not a race: dismissal is chained
-            // inside the loadItem completion, never on a blind viewDidLoad timer.
-            let delay = success ? 1.2 : 2.0
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)
-            }
+            // No auto-dismiss timer: user taps Open/Done to dismiss.
+            // completeRequest runs in openAppTapped/doneTapped via finishCompletion.
         }
     }
 
     private func complete(with error: Error) {
         guard !didFinish else { return }
         didFinish = true
+        didSettle = true
         spinner.stopAnimating()
         extensionContext?.cancelRequest(withError: error)
+    }
+}
+
+/// Percent-encoding for a full URL embedded as a single query value:
+/// unreserved marks only (RFC 3986 §2.3), so embedded `?&=` never split it.
+private extension CharacterSet {
+    static var shareURLQueryValueAllowed: CharacterSet {
+        CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")
     }
 }
 
