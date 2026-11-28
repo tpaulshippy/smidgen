@@ -1954,6 +1954,7 @@ struct SettingsView: View {
     @State private var pasteInput: String = ""
     @State private var joinResult: String = ""
     @State private var showQR = false
+    @State private var devicePrefix: String? = E2EKeyStore.loadMetadata().map { String($0.hash.prefix(8)) }
     /// Join staged for explicit confirmation when this device already has a
     /// key that may hold synced data — joining replaces it.
     @State private var pendingJoin: SyncInviteBundle? = nil
@@ -1993,6 +1994,9 @@ struct SettingsView: View {
                 Text(hasCustomServer ? "Using a custom server (see Advanced)." : "Using the built-in server.")
             }
             Section {
+                if let prefix = devicePrefix {
+                    Text("This device •\(prefix)").font(.caption).foregroundStyle(.secondary)
+                }
                 Button("Connect a new device") {
                     if let json = e2eInviteBundleJSON(householdId: householdName, endpointHint: hasCustomServer ? effectiveBaseURL : nil) {
                         inviteBundle = json
@@ -2162,7 +2166,7 @@ struct SettingsView: View {
                 // This device already has a key that may hold synced data —
                 // require explicit confirmation before switching households.
                 pendingJoin = bundle
-                joinResult = "This device already belongs to household \(active.metadata.householdId). Joining switches to \(bundle.householdId) and replaces this device's key."
+                joinResult = "This device is •\(String(active.metadata.hash.prefix(8))). Joining switches to •\(String(bundle.hash.prefix(8))) and replaces this device's key."
                 return
             }
             finishJoin(try e2eJoin(bundle: bundle))
@@ -2182,6 +2186,7 @@ struct SettingsView: View {
 
     private func finishJoin(_ res: E2EJoinResult) {
         householdName = res.householdId
+        devicePrefix = res.hashPrefix8.isEmpty ? nil : res.hashPrefix8
         pendingJoin = nil
         // SECURITY: never auto-apply the invite's endpointHint. An
         // attacker-controlled bundle must not silently redirect this
@@ -2192,11 +2197,11 @@ struct SettingsView: View {
             pendingEndpointHint = hint
             hintHealthResult = ""
             showAdvanced = true
-            joinResult = "Joined household \(res.householdId). The invite suggests a custom server below — review it before switching."
+            joinResult = "Joined •\(res.hashPrefix8). The invite suggests a custom server below — review it before switching."
         } else {
             pendingEndpointHint = nil
             hintHealthResult = ""
-            joinResult = "Joined household \(res.householdId)."
+            joinResult = "Joined •\(res.hashPrefix8)."
         }
         pasteInput = ""
     }
@@ -2298,8 +2303,10 @@ struct SettingsView: View {
     private func refreshE2EState() {
         if let meta = E2EKeyStore.loadMetadata() {
             householdName = meta.householdId
+            devicePrefix = String(meta.hash.prefix(8))
         } else {
             householdName = "hh-demo"
+            devicePrefix = nil
         }
     }
 }

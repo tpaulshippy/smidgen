@@ -2038,7 +2038,7 @@ async function doJoin(): Promise<void> {
       // This browser already has a key that may hold synced data — require
       // explicit confirmation before switching households.
       pendingJoin = bundle;
-      joinResult = `This device already belongs to household ${active.metadata.householdId}. Joining switches to ${bundle.householdId} and replaces this device's key.`;
+      joinResult = `This device is •${active.metadata.hash.slice(0, 8)}. Joining switches to •${bundle.hash.slice(0, 8)} and replaces this device's key.`;
     } else {
       await finishJoin(bundle);
     }
@@ -2087,16 +2087,16 @@ async function finishJoin(bundle: InviteBundle): Promise<void> {
     if (hint && hint !== current) {
       pendingHint = hint;
       advancedOpen = true;
-      joinResult = `Joined household ${bundle.householdId}. The code suggests a custom server — review it under Advanced before switching.`;
+      joinResult = `Joined •${bundle.hash.slice(0, 8)}. The code suggests a custom server — review it under Advanced before switching.`;
     } else if ((getApiBaseOverride() ?? '').trim()) {
       // A built-in invite names no server: staying on a stale custom
       // override would sync the joined household against the wrong backend
       // (appearing empty), so fall back to built-in explicitly.
       setApiBaseOverride(null);
       resetPullCursor();
-      joinResult = `Joined household ${bundle.householdId}. Switched to the built-in server (the code names no custom server).`;
+      joinResult = `Joined •${bundle.hash.slice(0, 8)}. Switched to the built-in server (the code names no custom server).`;
     } else {
-      joinResult = `Joined household ${bundle.householdId}.`;
+      joinResult = `Joined •${bundle.hash.slice(0, 8)}.`;
     }
   } finally {
     joiningCode = false;
@@ -2173,6 +2173,8 @@ function viewSettings(): void {
   // progress owns identity creation; the warm-up must not mint (or commit)
   // a competing identity underneath it.
   if (!joiningCode && !pendingJoin) void getIdentity(household).catch(() => undefined);
+  const devicePrefix = loadMetadata()?.hash?.slice(0, 8);
+  const devicePrefixBlock = devicePrefix ? `<p class="muted">This device •${esc(devicePrefix)}</p>` : '';
   const inviteBlock = inviteCode
     ? `<p><code style="word-break:break-all">${esc(inviteCode)}</code></p>` +
       `<p><button type="button" id="copycode">Copy code</button> ` +
@@ -2212,6 +2214,7 @@ function viewSettings(): void {
   <p><button type="button" id="syncnow"${syncingNow ? ' disabled' : ''}>${syncingNow ? 'Syncing…' : 'Sync now'}</button></p>
   <p class="muted">${hasCustomServer ? 'Using a custom server (see Advanced).' : 'Using the built-in server.'}</p>
   <h2>Devices</h2>
+  ${devicePrefixBlock}
   <p><button type="button" id="connect">Connect a new device</button></p>
   ${inviteBlock}
   <p><label>Paste code to join<br /><textarea id="pastecode" rows="3" style="width:100%"></textarea></label></p>
