@@ -1,0 +1,18 @@
+apps/android/app/src/main/java/com/keepcooking/app/ui/screens/SettingsScreen.kt
+  h_6bbd00fe0a456a 206,210,224,232,234,246-252,328
+apps/ios/App/DemoFlows.swift
+  h_6bbd00fe0a456a 1957,1997-1999,2169,2189,2200,2204,2306,2309
+apps/web/src/main.ts
+  h_6bbd00fe0a456a 2041,2090,2097,2099,2176-2177,2217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d1df50c2c3e1961808ba1417c52359901d6278fa",
+  "prompts": {},
+  "humans": {
+    "h_6bbd00fe0a456a": {
+      "author": "Paul Shippy <pshippy@gmail.com>"
+    }
+  }
+}
