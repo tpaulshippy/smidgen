@@ -203,9 +203,11 @@ private fun DevicesCard(container: AppContainer, onHintStaged: (String) -> Unit)
     var joinResult by remember { mutableStateOf("") }
     var pendingJoin by remember { mutableStateOf<SyncInviteBundle?>(null) }
     var working by remember { mutableStateOf(false) }
+    var devicePrefix by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(container) {
         household = E2EKeyStore.loadMetadata(container.e2eMetaStore)?.householdId ?: "hh-demo"
+        devicePrefix = E2EKeyStore.loadMetadata(container.e2eMetaStore)?.hash?.take(8)
     }
 
     fun performJoin(bundle: SyncInviteBundle) {
@@ -219,6 +221,7 @@ private fun DevicesCard(container: AppContainer, onHintStaged: (String) -> Unit)
                     joinResult = "Code does not match — it was mistyped or tampered with."
                 } else {
                     household = bundle.householdId
+                    devicePrefix = bundle.hash.take(8)
                     pasteInput = ""
                     pendingJoin = null
                     if (!bundle.endpointHint.isNullOrEmpty()) {
@@ -226,9 +229,9 @@ private fun DevicesCard(container: AppContainer, onHintStaged: (String) -> Unit)
                         // auto-applied (an invite must not silently redirect
                         // this device's backend).
                         onHintStaged(bundle.endpointHint)
-                        joinResult = "Joined household ${bundle.householdId}. The code suggests a custom server — review it under Advanced before switching."
+                        joinResult = "Joined •${bundle.hash.take(8)}. The code suggests a custom server — review it under Advanced before switching."
                     } else {
-                        joinResult = "Joined household ${bundle.householdId}."
+                        joinResult = "Joined •${bundle.hash.take(8)}."
                     }
                 }
             } finally {
@@ -240,6 +243,13 @@ private fun DevicesCard(container: AppContainer, onHintStaged: (String) -> Unit)
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Text("Devices", style = MaterialTheme.typography.titleMedium)
+            devicePrefix?.let { prefix ->
+                Text(
+                    "This device •$prefix",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Button(onClick = {
                 scope.launch {
@@ -315,7 +325,7 @@ private fun DevicesCard(container: AppContainer, onHintStaged: (String) -> Unit)
                                 // synced data — require explicit confirmation
                                 // before switching households.
                                 pendingJoin = bundle
-                                joinResult = "This device already belongs to household ${active.metadata.householdId}. Joining switches to ${bundle.householdId} and replaces this device's key."
+                                joinResult = "This device is •${active.metadata.hash.take(8)}. Joining switches to •${bundle.hash.take(8)} and replaces this device's key."
                             } else {
                                 performJoin(bundle)
                             }
